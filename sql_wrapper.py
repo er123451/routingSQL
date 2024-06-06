@@ -1,7 +1,7 @@
 import psycopg2
 import pandas as pd 
 from sqlalchemy import engine, create_engine, text
-import logging
+import logging, heapq
 
 class wrapper:
     logging.getLogger().addHandler(logging.StreamHandler())
@@ -49,19 +49,60 @@ class wrapper:
                 columns = query.keys()
                 relations = query.fetchall()
                 relationsdf = pd.DataFrame(data=relations, columns=columns)
+                relationsdf = pd.concat([relationsdf,pd.DataFrame(data={"table_name":relationsdf["foreign_table_name"],
+                                                         "foreign_table_name":relationsdf["table_name"],
+                                                         "column_name":relationsdf["foreign_column_name"],
+                                                         "foreign_column_name":relationsdf["column_name"]})])
 
                 for table in relationsdf["table_name"].unique():
                     relations_per_table = relationsdf.loc[relationsdf["table_name"]== table ]
-                    relations_list = []
+                    relations_dict = {}
                     for foreign_table_name in relations_per_table["foreign_table_name"]:
                         relation = relations_per_table.loc[relations_per_table["foreign_table_name"]==foreign_table_name].values[0]
-                        relations_list.append({relation[1]:{relation[2]:relation[3]}})
-                    self._relation[table] = relations_list
+                        relations_dict[relation[1]] = {relation[2]:relation[3]}
+                    self._relation[table] = relations_dict
         else:
             raise ValueError("unsupported database")
+
+    def dijkastra(self,from_table, to_table):
+        if from_table == to_table:
+             raise ValueError("from_table can't be equal to to_table")
+        costs = {}
+        prev = {}
+        route = []
+        for table in self._relation.keys():
+            costs[table] = float("inf")
+            prev[table] = None
+        costs[from_table] = 0
+
+        queue = [(0,from_table)]
+
+        while queue:
+            current_cost, current_table = heapq.heappop(queue)
+            if current_cost > costs[current_table]:
+                continue
+            for neighbor, key in self._relation[current_table].items():
+                cost = current_cost + 1
+                if cost < costs[neighbor]:
+                    costs[neighbor] = cost
+                    prev[neighbor] = current_table
+                    
+                    heapq.heappush(queue, (cost, neighbor))
+        route = [to_table] 
+        prev_table = to_table    
+        end = True
+        while end: 
+            if prev[prev_table] is not None:
+                route.append(prev_table)
+                prev_table = prev[prev_table]
+            else:
+                end = False
+
+        return route
+            
 
     def get_schema(self):
         return self._schema
     
     def get_relation(self):
-        return self.relation
+        return self._relation
