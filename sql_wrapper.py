@@ -22,30 +22,46 @@ class wrapper:
                 #Get database schema
                 query = conn.execute(text("SELECT distinct table_schema FROM information_schema.columns"))
                 schemas = query.fetchall()
-                print(schemas)
                 for schema in schemas:
-                    print(schema[0])
                     query = conn.execute(text("SELECT distinct(table_name) FROM information_schema.columns WHERE table_schema like '"+schema[0]+"'"))
                     tables = query.fetchall()
                     self._schema[schema[0]] = {}
                     for table in tables:
-                        query = conn.execute(text("SELECT distinct(column_name) FROM information_schema.columns	WHERE table_schema like '"+schema[0]+"' AND table_name like '"+table[0]+"';"))
+                        query = conn.execute(text("SELECT column_name FROM information_schema.columns	WHERE table_schema like '"+schema[0]+"' AND table_name like '"+table[0]+"';"))
                         columns = query.fetchall()
                         self._schema[schema[0]][table[0]] = []
                         for column in columns:
                             self._schema[schema[0]][table[0]].append(column[0])
 
                 #Get database relations
-                query = conn.execute("SELECT distinct concat(tc.table_schema,'.', tc.table_name) as table_name FROM information_schema.table_constraints AS tc WHERE tc.constraint_type = 'FOREIGN KEY'")
+                query = conn.execute(text("""SELECT
+                                                distinct concat(tc.table_schema,'.', tc.table_name) as table_name, 
+                                                concat(ccu.table_schema,'.', ccu.table_name) AS foreign_table_name,
+                                                kcu.column_name, 
+                                                ccu.column_name AS foreign_column_name 
+                                            FROM information_schema.table_constraints AS tc 
+                                            JOIN information_schema.key_column_usage AS kcu
+                                                ON tc.constraint_name = kcu.constraint_name
+                                                AND tc.table_schema = kcu.table_schema
+                                            JOIN information_schema.constraint_column_usage AS ccu
+                                                ON ccu.constraint_name = tc.constraint_name
+                                            WHERE tc.constraint_type = 'FOREIGN KEY'"""))
+                columns = query.keys()
+                relations = query.fetchall()
+                relationsdf = pd.DataFrame(data=relations, columns=columns)
+
+                for table in relationsdf["table_name"].unique():
+                    relations_per_table = relationsdf.loc[relationsdf["table_name"]== table ]
+                    relations_list = []
+                    for foreign_table_name in relations_per_table["foreign_table_name"]:
+                        relation = relations_per_table.loc[relations_per_table["foreign_table_name"]==foreign_table_name].values[0]
+                        relations_list.append({relation[1]:{relation[2]:relation[3]}})
+                    self._relation[table] = relations_list
         else:
             raise ValueError("unsupported database")
 
-        print(self._schema)
-        print(self._relation)
-        
-        
-
+    def get_schema(self):
+        return self._schema
     
-        
-
-
+    def get_relation(self):
+        return self.relation
