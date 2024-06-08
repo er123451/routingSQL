@@ -60,11 +60,39 @@ class wrapper:
                     for foreign_table_name in relations_per_table["foreign_table_name"]:
                         relation = relations_per_table.loc[relations_per_table["foreign_table_name"]==foreign_table_name].values[0]
                         relations_dict[relation[1]] = {relation[2]:relation[3]}
-                    self._relation[table] = relations_dict
+                    self._relation.update({table:relations_dict}) 
+                    
         else:
             raise ValueError("unsupported database")
 
-    def dijkastra(self,from_table, to_table):
+    def get_columns(self,columns: list):
+
+        #Get route between tables
+        tables = []
+        for column in columns:
+            tables.append(".".join(column.split(".")[0:2]))
+        route = [heapq.heappop(tables)]
+        prev = {}
+        print(route)
+        while tables:
+            next_route = ([],float("inf"))
+            next_table = heapq.heappop(tables)
+            print(route)
+            if next_table not in route:  
+                for node in route:
+                    print("node is : "+node+", next table is :"+next_table)
+                    check_route = self._dijkastra(node,next_table)   
+                    if next_route[1] > check_route[1]:
+                        next_route = check_route
+                route = route+next_route[0][1:]
+                prev.update({next_table : next_route[2][next_table]})
+
+        #create query 
+        query = self._create_query(columns, route, prev, "left join")
+
+    def _dijkastra(self,from_table, to_table):
+        
+        
         if from_table == to_table:
              raise ValueError("from_table can't be equal to to_table")
         costs = {}
@@ -85,8 +113,7 @@ class wrapper:
                 cost = current_cost + 1
                 if cost < costs[neighbor]:
                     costs[neighbor] = cost
-                    prev[neighbor] = current_table
-                    
+                    prev[neighbor] = current_table                    
                     heapq.heappush(queue, (cost, neighbor))
         route = [to_table] 
         prev_table = to_table    
@@ -98,7 +125,21 @@ class wrapper:
             else:
                 end = False
 
-        return route
+        return route, costs[to_table], prev
+
+    
+    def _create_query(self,columns,tables,prev,join):
+        print(prev)
+        columns_joined = " ,".join(list(columns))
+        query = "select "+columns_joined
+        query += " from "+ tables[0]
+        for i in range(len(tables)-1):
+            print("tabla1 : "+tables[i]+ "tabla2 : "+tables[i+1])
+            pk = self._relation[tables[i]][tables[i+1]]
+            print(pk)
+            query += " ".join([join,tables[i+1],"on",str(pk.keys()),str(pk.values())])
+    
+        return query
             
 
     def get_schema(self):
